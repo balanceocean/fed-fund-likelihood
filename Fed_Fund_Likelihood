@@ -1,0 +1,63 @@
+# Libraries that you need
+library(tidyquant)
+library(tidyverse)
+library(Quandl)
+library(scales)
+
+# Current Fed Fund Future Price
+Fed_Fund_Future_Price <- Quandl("CHRIS/CME_FF1", api_key = "PUT HERE YOUR QUANDL KEY") %>% head(n = 1)
+
+# Current Fed Funds Target Rate
+Min_Rate   <- 0    # In %
+Max_Rate   <- 0.25 # In %
+Next_Delta <- 25   # In bps
+
+# Calculations
+data.frame(Expected_FFE            = 100 - Fed_Fund_Future_Price$Settle,
+           Current_Target_Midpoint = (Min_Rate + Max_Rate)/2) %>%
+  dplyr::mutate(New_Targe_w_Next_Delta  = Current_Target_Midpoint + Next_Delta/100,
+                Prob_New_Change         = (Expected_FFE - Current_Target_Midpoint)/(New_Targe_w_Next_Delta - Current_Target_Midpoint)) %>%
+  # Changing Formats
+  dplyr::mutate(Prob_New_Change         = ifelse(Prob_New_Change < 0, "0.00%", Prob_New_Change %>% percent(accuracy = 0.001)),
+                Expected_FFE            = percent(Expected_FFE/100, accuracy = 0.001),
+                Current_Target_Midpoint = percent(Current_Target_Midpoint/100, accuracy = 0.001),
+                New_Targe_w_Next_Delta  = percent(New_Targe_w_Next_Delta/100, accuracy = 0.001),
+                Date_Analysis           = Fed_Fund_Future_Price$Date) %>%
+  # Presenting data
+  t() %>%
+  as.data.frame() %>%
+  purrr::set_names("Values") %>%
+  rownames_to_column(var = "Description") %>%
+  dplyr::mutate(Description = str_replace_all(Description, "_", " "))
+
+# Plotting (Prob of different Deltas)
+Possible_Odds   <- seq(-50, 50, 1)
+DB_Calculations <- NULL
+
+for(i in Possible_Odds){ # i <- 50
+  Odds_Calculations <- data.frame(Expected_FFE            = 100 - Fed_Fund_Future_Price$Settle,
+                                  Current_Target_Midpoint = (Min_Rate + Max_Rate)/2) %>%
+    dplyr::mutate(New_Targe_w_Next_Delta  = Current_Target_Midpoint + i/100,
+                  Prob_New_Change         = (Expected_FFE - Current_Target_Midpoint)/(New_Targe_w_Next_Delta - Current_Target_Midpoint))
+  
+  
+  DB_Calculations <- bind_rows(DB_Calculations, data.frame(Delta = i,
+                                                           Odds  = Odds_Calculations$Prob_New_Change))
+}
+
+# Some charts
+DB_Calculations %>% 
+  dplyr::mutate(Odds = ifelse(Odds < 0, 0, 
+                              ifelse(Odds > 1, 1, Odds))) %>%
+  ggplot(aes(x = Delta, y = Odds)) + 
+  geom_line(size = 1, colour = "steelblue") +
+  theme_tq() +
+  labs(title    = "Odds of an increase/decrease in the Fed Funds Rate",
+       subtitle = "To be announced at the next FOMC meeting - Likelihood",
+       caption  = "By: Carlos Jimenez",
+       x        = "Basis Points",
+       y        = "Odds") +
+  scale_y_continuous(labels = scales::percent) +
+  theme(legend.title = element_blank()) 
+
+
